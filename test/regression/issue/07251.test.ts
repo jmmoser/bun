@@ -1,11 +1,7 @@
 import { expect, test } from "bun:test";
 import { bunEnv, bunExe } from "../../harness";
 
-// https://github.com/oven-sh/bun/issues/7251
 test("#7251 console.log emits EPIPE on process.stdout when pipe is broken", async () => {
-  // Note: console.log goes through the native Zig ConsoleObject writer,
-  // bypassing the JS FileSink on process.stdout. The fix ensures that
-  // EPIPE errors from this native path are still emitted on process.stdout.
   await using proc = Bun.spawn({
     cmd: [
       bunExe(),

@@ -3966,7 +3966,6 @@ extern "C" void Process__emitStdoutWriteError(Zig::GlobalObject* global, Encoded
     auto& vm = JSC::getVM(global);
     auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
 
-    // Clear any pending exception so we can safely interact with JS objects.
     if (scope.exception()) {
         scope.clearException();
     }
@@ -3984,9 +3983,6 @@ extern "C" void Process__emitStdoutWriteError(Zig::GlobalObject* global, Encoded
 
     JSObject* stdoutObj = stdoutValue.getObject();
 
-    // Directly emit 'error' event on process.stdout rather than calling destroy().
-    // This avoids issues with the destroy/undestroy cycle used for stdio streams
-    // and ensures the error event is emitted synchronously.
     JSValue emitFn = stdoutObj->get(global, Identifier::fromString(vm, "emit"_s));
 
     if (scope.exception()) {

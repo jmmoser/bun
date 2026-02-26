@@ -3761,14 +3761,10 @@ pub fn timeStamp(
 
 fn emitStdoutWriteError(console: *ConsoleObject, level: MessageLevel, global: *JSGlobalObject) void {
     const err = console.writer_backing.err orelse return;
-    // Only check for stdout errors (not stderr which uses Warning/Error levels)
     if (level == .Warning or level == .Error) return;
 
     if (err == error.EPIPE or err == error.BrokenPipe) {
-        // Clear the error to prevent re-emission on every subsequent console.log call.
         console.writer_backing.err = null;
-
-        // Clear any pending JS exception so toJS can succeed.
         global.clearException();
 
         const js_err = bun.sys.Error.fromCode(.PIPE, .write).toJS(global) catch return;

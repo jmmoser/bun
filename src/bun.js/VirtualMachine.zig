@@ -3523,6 +3523,7 @@ pub fn resolveSourceMapping(
 extern fn Process__emitMessageEvent(global: *JSGlobalObject, value: JSValue, handle: JSValue) void;
 extern fn Process__emitDisconnectEvent(global: *JSGlobalObject) void;
 pub extern fn Process__emitErrorEvent(global: *JSGlobalObject, value: JSValue) void;
+pub extern fn Process__emitStdoutWriteError(global: *JSGlobalObject, value: JSValue) void;
 
 pub const IPCInstanceUnion = union(enum) {
     /// IPC is put in this "enabled but not started" state when IPC is detected

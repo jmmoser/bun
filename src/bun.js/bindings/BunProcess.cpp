@@ -160,6 +160,7 @@ BUN_DECLARE_HOST_FUNCTION(Bun__Process__send);
 
 extern "C" void Process__emitDisconnectEvent(Zig::GlobalObject* global);
 extern "C" void Process__emitErrorEvent(Zig::GlobalObject* global, EncodedJSValue value);
+extern "C" void Process__emitStdoutWriteError(Zig::GlobalObject* global, EncodedJSValue value);
 
 extern "C" void Bun__suppressCrashOnProcessKillSelfIfDesired();
 
@@ -3957,6 +3958,53 @@ extern "C" void Process__emitErrorEvent(Zig::GlobalObject* global, EncodedJSValu
         JSC::MarkedArgumentBuffer args;
         args.append(JSValue::decode(value));
         process->wrapped().emit(vm.propertyNames->error, args);
+    }
+}
+
+extern "C" void Process__emitStdoutWriteError(Zig::GlobalObject* global, EncodedJSValue value)
+{
+    auto& vm = JSC::getVM(global);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
+
+    // Clear any pending exception so we can safely interact with JS objects.
+    if (scope.exception()) {
+        scope.clearException();
+    }
+
+    auto* process = global->processObject();
+    JSValue stdoutValue = process->get(global, Identifier::fromString(vm, "stdout"_s));
+
+    if (scope.exception()) {
+        scope.clearException();
+        return;
+    }
+
+    if (!stdoutValue.isObject())
+        return;
+
+    JSObject* stdoutObj = stdoutValue.getObject();
+
+    // Directly emit 'error' event on process.stdout rather than calling destroy().
+    // This avoids issues with the destroy/undestroy cycle used for stdio streams
+    // and ensures the error event is emitted synchronously.
+    JSValue emitFn = stdoutObj->get(global, Identifier::fromString(vm, "emit"_s));
+
+    if (scope.exception()) {
+        scope.clearException();
+        return;
+    }
+
+    auto callData = JSC::getCallData(emitFn);
+    if (callData.type == JSC::CallData::Type::None)
+        return;
+
+    JSC::MarkedArgumentBuffer args;
+    args.append(JSC::jsString(vm, makeAtomString("error"_s)));
+    args.append(JSValue::decode(value));
+    JSC::call(global, emitFn, callData, stdoutValue, args);
+
+    if (scope.exception()) {
+        scope.clearException();
     }
 }
 

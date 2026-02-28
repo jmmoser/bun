@@ -151,8 +151,7 @@ fn messageWithTypeAndLevel_(
             Output.prettyFmt("<r><red>Assertion failed<r>\n", true)
         else
             "Assertion failed\n";
-        console.error_writer.writeAll(text) catch {};
-        console.error_writer.flush() catch {};
+        writeToProcessStream(global, console, text, level);
         return;
     }
 
@@ -161,11 +160,11 @@ fn messageWithTypeAndLevel_(
     else
         Output.enable_ansi_colors_stdout;
 
-    const writer = if (level == .Warning or level == .Error)
-        console.error_writer
-    else
-        console.writer;
-    const Writer = @TypeOf(writer);
+    var buf = bun.MutableString.init(default_allocator, 4096) catch return;
+    defer buf.deinit();
+    var old_writer = buf.writer();
+    var adapted = old_writer.adaptToNewApi(&.{});
+    const writer: *std.Io.Writer = &adapted.new_interface;
 
     if (bun.jsc.Jest.Jest.runner) |runner| {
         runner.bun_test_root.onBeforePrint();
@@ -203,9 +202,10 @@ fn messageWithTypeAndLevel_(
             table_printer.value_formatter.indent += console.default_indent;
 
             switch (enable_colors) {
-                inline else => |colors| table_printer.printTable(Writer, writer, colors) catch return,
+                inline else => |colors| table_printer.printTable(*std.Io.Writer, writer, colors) catch return,
             }
             writer.flush() catch {};
+            writeToProcessStream(global, console, buf.list.items, level);
             return;
         }
     }
@@ -237,14 +237,54 @@ fn messageWithTypeAndLevel_(
             print_options,
         )
     else if (message_type == .Log) {
-        _ = console.writer.write("\n") catch 0;
-        console.writer.flush() catch {};
+        _ = writer.write("\n") catch 0;
+        writer.flush() catch {};
     } else if (message_type != .Trace)
         writer.writeAll("undefined\n") catch {};
 
     if (message_type == .Trace) {
-        writeTrace(Writer, writer, global);
+        writeTrace(*std.Io.Writer, writer, global);
         writer.flush() catch {};
+    }
+
+    writeToProcessStream(global, console, buf.list.items, level);
+}
+
+fn writeToProcessStream(global: *JSGlobalObject, console: *ConsoleObject, text: []const u8, level: MessageLevel) void {
+    if (text.len == 0) return;
+
+    const is_stderr = level == .Warning or level == .Error;
+
+    const wrote_to_stream = stream_write: {
+        const global_val = global.toJSValue();
+        const process_val = (global_val.getPropertyValue(global, "process") catch |err| {
+            _ = global.takeException(err);
+            break :stream_write false;
+        }) orelse break :stream_write false;
+        const stream = (process_val.getPropertyValue(global, if (is_stderr) "stderr" else "stdout") catch |err| {
+            _ = global.takeException(err);
+            break :stream_write false;
+        }) orelse break :stream_write false;
+        const write_fn = (stream.getPropertyValue(global, "write") catch |err| {
+            _ = global.takeException(err);
+            break :stream_write false;
+        }) orelse break :stream_write false;
+
+        var str = ZigString.fromBytes(text);
+        const js_string = str.toJS(global);
+        if (js_string == .zero) break :stream_write false;
+
+        _ = write_fn.call(global, stream, &.{js_string}) catch |err| {
+            _ = global.takeException(err);
+            break :stream_write false;
+        };
+        break :stream_write true;
+    };
+
+    if (!wrote_to_stream) {
+        const native_writer = if (is_stderr) console.error_writer else console.writer;
+        native_writer.writeAll(text) catch {};
+        native_writer.flush() catch {};
     }
 }
 
